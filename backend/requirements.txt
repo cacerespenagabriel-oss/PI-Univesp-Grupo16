@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+requests
+sqlalchemy
+twilio
+python-dotenv
+psycopg2-binary
+psycopg2-binary==2.9.9
+pydantic-settings==2.2.1
