@@ -4,7 +4,7 @@ from datetime import datetime
 def buscar_chuva_inmet():
     """
     Busca o volume de chuva passado (3h e 24h) e a previsão para as 
-    próximas 2h na Vila Prudente/Anhaia Mello usando a API da Open-Meteo.
+    climas/próximas 2h na Vila Prudente/Anhaia Melo usando a API da Open-Meteo.
     """
     LATITUDE = -23.5812
     LONGITUDE = -46.5834
@@ -44,3 +44,13 @@ def buscar_chuva_inmet():
         print(f"⚠️ Erro ao acessar API de clima (Open-Meteo): {e}")
         # Retorno de segurança caso o serviço caia
         return 0.0, 0.0, 0.0
+
+# Bloco de teste local para validação instantânea
+if __name__ == "__main__":
+    print("\n⏳ Buscando dados de chuva ao vivo na Open-Meteo para a Vila Prudente...")
+    acum_3h, acum_24h, prev_2h = buscar_chuva_inmet()
+    print("-" * 50)
+    print(f"🌧️  Acumulado das últimas 3 horas:  {acum_3h} mm")
+    print(f"🌧️  Acumulado das últimas 24 horas: {acum_24h} mm")
+    print(f"🔮 Previsão para as próximas 2 horas: {prev_2h} mm")
+    print("-" * 50)

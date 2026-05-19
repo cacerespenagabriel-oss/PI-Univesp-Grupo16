@@ -1,126 +1,85 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
-from typing import List, Optional
-import models
-import os
-from database import engine, SessionLocal
-from services.alerta_automatico import executar_alerta
-from services.whatsapp_service import receber_relato_whatsapp
 
-# Garante a criação das tabelas no banco SQLite
+# Importações de escopo local (Correto)
+from database import SessionLocal, engine, get_db
+import models
+
+# 1. Cria as tabelas no Neon
 models.Base.metadata.create_all(bind=engine)
 
+# 2. Inicializa o objeto 'app' ANTES de criar as rotas (Resolve o NameError!)
 app = FastAPI(
-    title="Sistema de Alerta de Alagamentos - Anhaia Mello",
-    description="API para monitoramento preditivo de 1h de antecedência e recepção de imagens via WhatsApp."
+    title="Sistema de Alerta de Alagamentos - Vila Prudente",
+    description="API para monitoramento de enchentes na região da Anhaia Mello para o Projeto Integrador I",
+    version="1.0.0"
 )
 
-# CONFIGURAÇÃO INTELIGENTE DE CAMINHO (Evita erro 500 e 404)
-# Detecta se o servidor foi iniciado de dentro da pasta 'app' ou da raiz 'backend'
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-if os.path.basename(BASE_DIR) == "app":
-    templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
-else:
-    templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "app", "templates"))
+# 3. Configura o CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Esquemas de Validação (Pydantic)
-class TelefoneCreate(BaseModel):
-    numero: str
+templates = Jinja2Templates(directory="templates")
 
-class OcorrenciaCreate(BaseModel):
-    descricao: str
-    nivel_agua: str
-    latitude: float
-    longitude: float
-    imagem_url: Optional[str] = None
+# ==============================================================================
+# ROTAS DO SISTEMA
+# ==============================================================================
 
-class OcorrenciaResponse(BaseModel):
-    id: int
-    descricao: str
-    nivel_agua: str
-    latitude: float
-    longitude: float
-    imagem_url: Optional[str]
-    status: str
-    
-    class Config:
-        from_attributes = True
+# Rota da página principal
+@app.get("/")
+def acessar_home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
-class WhatsAppMessageInput(BaseModel):
-    numero_morador: str
-    latitude: float
-    longitude: float
-    imagem_url: str
 
-# Dependência do Banco de Dados
-def get_db():
-    db = SessionLocal()
+# Rota que lista todas as ocorrências
+@app.get("/ocorrencias/validadas")
+def listar_ocorrencias(db: Session = Depends(get_db)):
     try:
-        yield db
-    finally:
-        db.close()
-
-# --- ROTAS DA APLICAÇÃO ---
-
-@app.get("/", response_class=HTMLResponse)
-def abrir_painel_mapa(request: Request):
-    """Página principal do aplicativo que renderiza o painel com o mapa geográfico."""
-    try:
-        return templates.TemplateResponse("index.html", {"request": request})
+        ocorrencias = db.query(models.Ocorrencia).all()
+        return ocorrencias
     except Exception as e:
-        return HTMLResponse(
-            content=f"<h3>Erro ao carregar o template: {str(e)}</h3><p>Verifique se o arquivo index.html está dentro da pasta app/templates/</p>", 
-            status_code=500
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar dados no Neon: {str(e)}")
+
+
+# Rota do Webhook com o Print de Debug do Akita para pegar erros do banco
+@app.post("/ocorrencias/webhook-whatsapp", status_code=201)
+def receber_relato_whatsapp(ocorrencia: dict, db: Session = Depends(get_db)):
+    print("\n=== [DEBUG AKITA] DADOS RECEBIDOS DO SWAGGER ===")
+    print(ocorrencia)
+    print("================================================\n")
+    
+    try:
+        nova_ocorrencia = models.Ocorrencia(
+            descricao=ocorrencia.get("descricao"),
+            nivel_agua=ocorrencia.get("nivel_agua"),
+            latitude=ocorrencia.get("latitude"),
+            longitude=ocorrencia.get("longitude"),
+            imagem_url=ocorrencia.get("imagem_url"),
+            status=ocorrencia.get("status", "pendente"),
+            numero_morador=ocorrencia.get("numero_morador")
         )
-
-@app.get("/alertas/status")
-def obter_status_alerta():
-    """Analisa a previsão meteorológica para alertar com antecedência."""
-    risco, nivel = executar_alerta()
-    return {"risco": round(risco, 2), "nivel": nivel}
-
-@app.post("/ocorrencias/webhook-whatsapp", response_model=OcorrenciaResponse, status_code=status.HTTP_201_CREATED)
-def webhook_whatsapp_receber_relato(payload: WhatsAppMessageInput, db: Session = Depends(get_db)):
-    """Recebe o relato (localização e foto) enviado pelo morador via WhatsApp."""
-    dados_relato = receber_relato_whatsapp(
-        payload.numero_morador, payload.latitude, payload.longitude, payload.imagem_url
-    )
-    nova_ocorrencia = models.Ocorrencia(**dados_relato)
-    db.add(nova_ocorrencia)
-    db.commit()
-    db.refresh(nova_ocorrencia)
-    return nova_ocorrencia
-
-@app.get("/ocorrencias/validadas", response_model=List[OcorrenciaResponse])
-def listar_ocorrencias_validadas(db: Session = Depends(get_db)):
-    """Retorna apenas os pontos de alagamento confirmados pela Defesa Civil."""
-    return db.query(models.Ocorrencia).filter(models.Ocorrencia.status == "validada").all()
-
-@app.patch("/ocorrencias/{ocorrencia_id}/validar", response_model=OcorrenciaResponse)
-def validar_ocorrencia(ocorrencia_id: int, status_validacao: str, db: Session = Depends(get_db)):
-    """Defesa Civil analisa a imagem e valida ou recusa o ponto."""
-    if status_validacao not in ["validada", "recusada"]:
-        raise HTTPException(status_code=400, detail="Status inválido. Use 'validada' ou 'recusada'.")
-    
-    ocorrencia = db.query(models.Ocorrencia).filter(models.Ocorrencia.id == ocorrencia_id).first()
-    if not ocorrencia:
-        raise HTTPException(status_code=404, detail="Ocorrência não encontrada.")
-    
-    ocorrencia.status = status_validacao
-    db.commit()
-    db.refresh(ocorrencia)
-    return ocorrencia
-
-@app.post("/moradores/cadastro")
-def cadastrar_telefone(telefone: TelefoneCreate, db: Session = Depends(get_db)):
-    """Cadastra moradores para receberem as notificações preditivas."""
-    existe = db.query(models.Telefone).filter(models.Telefone.numero == telefone.numero).first()
-    if existe:
-        return {"status": "já cadastrado"}
-    novo = models.Telefone(numero=telefone.numero)
-    db.add(novo)
-    db.commit()
-    return {"status": "sucesso"}
+        
+        print("-> Tentando adicionar ao banco...")
+        db.add(nova_ocorrencia)
+        
+        print("-> Tentando dar o commit...")
+        db.commit()
+        
+        print("-> Atualizando objeto...")
+        db.refresh(nova_ocorrencia)
+        
+        print(f"-> SUCESSO ABSOLUTO! Gravado com ID: {nova_ocorrencia.id}")
+        return {"status": "sucesso", "id": nova_ocorrencia.id}
+        
+    except Exception as e:
+        db.rollback()
+        print(f"\n❌ ERRO CRÍTICO NO BANCO: {str(e)}\n")
+        raise HTTPException(status_code=500, detail=f"Erro interno de banco: {str(e)}")
