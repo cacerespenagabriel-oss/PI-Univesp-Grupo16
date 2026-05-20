@@ -3,114 +3,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel de Monitoramento - Anhaia Mello</title>
+    <title>Monitoramento - Anhaia Mello</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; }
-        header { background-color: #1e293b; color: white; padding: 15px; text-align: center; font-size: 20px; font-weight: bold; }
-        #container { display: flex; flex: 1; height: calc(100vh - 60px); }
-        #sidebar { width: 350px; background-color: #f8fafc; border-right: 1px solid #e2e8f0; padding: 20px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
-        #map { flex: 1; height: 100%; min-height: 400px; background-color: #e5e7eb; }
-        .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 5px solid #ef4444; margin-bottom: 10px; }
-        .status-badge { display: inline-block; padding: 10px; border-radius: 6px; font-weight: bold; text-align: center; font-size: 18px; margin-top: 10px; color: white; width: 100%; box-sizing: border-box; }
-        .baixo { background-color: #10b981; }
-        .atencao { background-color: #f59e0b; }
-        .emergencia { background-color: #ef4444; }
+        :root { --primary: #1e3a8a; --accent: #f59e0b; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; }
+        
+        #sidebar { width: 380px; background: #f8fafc; border-right: 1px solid #e2e8f0; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
+        #map { flex: 1; }
+
+        h3 { color: var(--primary); margin-top: 0; }
+        .card { background: white; padding: 15px; border-radius: 8px; border-left: 5px solid #ef4444; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .badge-nivel { padding: 10px; text-align: center; font-weight: bold; color: white; border-radius: 6px; margin-bottom: 20px; }
     </style>
 </head>
 <body>
 
-    <header>🗺️ Painel de Alagamentos em Tempo Real - Vila Prudente / Anhaia Mello</header>
-    
-    <div id="container">
-        <div id="sidebar">
-            <h2>Status do Risco</h2>
-            <div id="risco-box">
-                <div id="risco-texto" style="font-size: 16px; font-weight: 500;">Carregando risco atual...</div>
-                <div id="badge-nivel" class="status-badge">---</div>
-            </div>
-            
-            <hr style="border: 0; border-top: 1px solid #e2e8f0; width: 100%;">
-            
-            <h2>Pontos Validados</h2>
-            <div id="lista-ocorrencias">Nenhum alagamento ativo no momento.</div>
-        </div>
-
-        <div id="map"></div>
+    <div id="sidebar">
+        <h3>Monitoramento Anhaia Mello</h3>
+        <div id="badge-nivel" class="badge-nivel" style="background-color: #10b981;">STATUS NORMAL</div>
+        
+        <h3>Relatos da Comunidade</h3>
+        <div id="lista-ocorrencias">Carregando dados...</div>
     </div>
+    
+    <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // 1. Inicializa o mapa focado na região da Av. Anhaia Mello
         const map = L.map('map').setView([-23.5822, -46.5844], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        const markersLayer = L.layerGroup().addTo(map);
 
-        // 2. Carrega as imagens dos blocos do mapa público
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap'
-        }).addTo(map);
+        function calcularTempo(dataISO) {
+            if (!dataISO) return "Data não informada";
+            const diff = Math.floor((new Date() - new Date(dataISO)) / 60000);
+            if (diff < 1) return "Agora mesmo";
+            if (diff < 60) return `Há ${diff} min`;
+            return `Há ${Math.floor(diff / 60)}h`;
+        }
 
-        // Ícone padrão do Leaflet corrigido para não quebrar a aplicação
-        const perigoIcon = L.icon({
-            iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-            shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-            iconSize: [25, 41],
-            iconAnchor: [12, 41],
-            popupAnchor: [1, -34]
-        });
-
-        async function atualizarPainel() {
+        async function carregarDados() {
             try {
-                // Puxa o status do risco do FastAPI
-                const resStatus = await fetch('/alertas/status');
-                const statusData = await resStatus.json();
-                document.getElementById('risco-texto').innerText = `Risco Hidrológico: ${statusData.risco}%`;
+                const res = await fetch('/ocorrencias/validadas');
+                const pontos = await res.json();
                 
-                const badge = document.getElementById('badge-nivel');
-                badge.innerText = statusData.nivel;
-                badge.className = 'status-badge ' + (statusData.nivel === 'BAIXO' ? 'baixo' : statusData.nivel === 'ATENÇÃO' ? 'atencao' : 'emergencia');
+                const lista = document.getElementById('lista-ocorrencias');
+                lista.innerHTML = '';
+                markersLayer.clearLayers();
 
-                // Puxa as ocorrências validadas
-                const resPontos = await fetch('/ocorrencias/validadas');
-                const pontos = await resPontos.json();
-                
-                const listaDiv = document.getElementById('lista-ocorrencias');
-                listaDiv.innerHTML = '';
+                // Ordena: mais novos primeiro
+                pontos.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-                // Limpa marcadores anteriores para evitar duplicações
-                map.eachLayer((layer) => {
-                    if (layer instanceof L.Marker) map.removeLayer(layer);
-                });
-
-                if (pontos.length === 0) {
-                    listaDiv.innerHTML = '<p>Nenhum ponto crítico validado pela Defesa Civil.</p>';
-                    return;
-                }
-
-                pontos.forEach(ponto => {
-                    // Plota o marcador no mapa Leaflet
-                    const marcador = L.marker([ponto.latitude, ponto.longitude], {icon: perigoIcon}).addTo(map);
+                pontos.forEach(p => {
+                    // Adiciona marcador no mapa
+                    L.marker([p.latitude, p.longitude]).addTo(markersLayer).bindPopup(p.descricao);
                     
-                    let popupConteudo = `<b>🚨 Alagamento Confirmado</b><br>${ponto.descricao}<br>Nível: <b>${ponto.nivel_agua.toUpperCase()}</b>`;
-                    if (ponto.imagem_url) {
-                        popupConteudo += `<br><br><a href="${ponto.imagem_url}" target="_blank"><img src="${ponto.imagem_url}" style="width:100%; max-width:180px; border-radius:5px; margin-top:5px;"></a>`;
-                    }
-                    marcador.bindPopup(popupConteudo);
-
-                    // Cria o card correspondente na barra lateral
+                    // Adiciona card na lista
                     const card = document.createElement('div');
                     card.className = 'card';
-                    card.innerHTML = `<strong>ID #${ponto.id} - Nível ${ponto.nivel_agua}</strong><br>${ponto.descricao}`;
-                    listaDiv.appendChild(card);
+                    card.innerHTML = `
+                        <strong>Nível ${p.nivel_agua}</strong>
+                        <div style="font-size: 12px; color: #64748b;">${calcularTempo(p.created_at)}</div>
+                        <p style="margin: 5px 0 0 0; font-size: 14px;">${p.descricao}</p>
+                    `;
+                    lista.appendChild(card);
                 });
-
-            } catch (error) {
-                console.error("Erro na atualização automática:", error);
+            } catch (e) {
+                console.error("Erro ao carregar:", e);
             }
         }
 
-        // Atualiza ao abrir e repete a cada 5 segundos de forma invisível
-        atualizarPainel();
-        setInterval(atualizarPainel, 5000);
+        carregarDados();
+        setInterval(carregarDados, 10000);
     </script>
 </body>
 </html>
