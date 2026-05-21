@@ -1,81 +1,621 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monitoramento - Anhaia Mello</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-        :root { --primary: #1e3a8a; --accent: #f59e0b; }
-        body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; }
-        
-        #sidebar { width: 380px; background: #f8fafc; border-right: 1px solid #e2e8f0; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
-        #map { flex: 1; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitoramento — Córrego Anhaia Mello</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cor-fundo: #0d1117;
+      --cor-painel: #161b22;
+      --cor-borda: rgba(255,255,255,0.07);
+      --cor-texto: #e6edf3;
+      --cor-texto-muted: #8b949e;
+      --cor-alerta: #ff4444;
+      --cor-atencao: #f59e0b;
+      --cor-normal: #22c55e;
+      --cor-info: #3b82f6;
+      --cor-destaque: #ef4444;
+    }
 
-        h3 { color: var(--primary); margin-top: 0; }
-        .card { background: white; padding: 15px; border-radius: 8px; border-left: 5px solid #ef4444; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .badge-nivel { padding: 10px; text-align: center; font-weight: bold; color: white; border-radius: 6px; margin-bottom: 20px; }
-    </style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--cor-fundo);
+      color: var(--cor-texto);
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #alerta-critico {
+      display: none;
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      z-index: 9999;
+      background: var(--cor-alerta);
+      color: white;
+      text-align: center;
+      padding: 10px 20px;
+      font-family: 'Space Mono', monospace;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      animation: pulso-alerta 1.2s infinite alternate;
+    }
+    @keyframes pulso-alerta {
+      from { background: #ef4444; }
+      to   { background: #b91c1c; }
+    }
+
+    #sidebar {
+      width: 380px;
+      background: var(--cor-painel);
+      border-right: 1px solid var(--cor-borda);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    #sidebar-header {
+      padding: 22px 20px 16px;
+      border-bottom: 1px solid var(--cor-borda);
+      flex-shrink: 0;
+    }
+
+    .logo-linha {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+    .logo-icone {
+      width: 32px; height: 32px;
+      background: var(--cor-alerta);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .logo-icone svg { width: 18px; height: 18px; fill: white; }
+
+    #sidebar-header h1 {
+      font-family: 'Space Mono', monospace;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--cor-texto);
+    }
+    #sidebar-header p {
+      font-size: 12px;
+      color: var(--cor-texto-muted);
+      margin-left: 42px;
+    }
+
+    #status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.25);
+      color: var(--cor-normal);
+    }
+    #status-badge.alerta {
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(239, 68, 68, 0.35);
+      color: var(--cor-alerta);
+    }
+    #status-badge.atencao {
+      background: rgba(245, 158, 11, 0.12);
+      border-color: rgba(245, 158, 11, 0.35);
+      color: var(--cor-atencao);
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      flex-shrink: 0;
+    }
+    .status-dot.pulsando {
+      animation: pulso-dot 1.4s infinite;
+    }
+    @keyframes pulso-dot {
+      0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+      50% { box-shadow: 0 0 0 5px transparent; opacity: 0.7; }
+    }
+    #status-texto { flex: 1; }
+    #ultimo-update {
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--cor-texto-muted);
+    }
+
+    #stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--cor-borda);
+      flex-shrink: 0;
+    }
+    .stat-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--cor-borda);
+      border-radius: 8px;
+      padding: 10px 12px;
+      text-align: center;
+    }
+    .stat-num {
+      font-family: 'Space Mono', monospace;
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .stat-num.vermelho { color: var(--cor-alerta); }
+    .stat-num.amarelo  { color: var(--cor-atencao); }
+    .stat-num.verde    { color: var(--cor-normal); }
+    .stat-label {
+      font-size: 10px;
+      color: var(--cor-texto-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    #filtros {
+      display: flex;
+      gap: 6px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--cor-borda);
+      flex-shrink: 0;
+    }
+    .btn-filtro {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--cor-borda);
+      background: transparent;
+      color: var(--cor-texto-muted);
+      cursor: pointer;
+      transition: all 0.15s;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .btn-filtro.ativo, .btn-filtro:hover {
+      border-color: rgba(255,255,255,0.25);
+      color: var(--cor-texto);
+      background: rgba(255,255,255,0.06);
+    }
+    .btn-filtro.critico.ativo { border-color: var(--cor-alerta); color: var(--cor-alerta); background: rgba(239,68,68,0.1); }
+    .btn-filtro.medio.ativo  { border-color: var(--cor-atencao); color: var(--cor-atencao); background: rgba(245,158,11,0.1); }
+    .btn-filtro.baixo.ativo  { border-color: var(--cor-normal); color: var(--cor-normal); background: rgba(34,197,94,0.1); }
+
+    #lista-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+    }
+    #lista-scroll::-webkit-scrollbar { width: 4px; }
+    #lista-scroll::-webkit-scrollbar-track { background: transparent; }
+    #lista-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+    #lista-titulo {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--cor-texto-muted);
+      margin-bottom: 10px;
+    }
+
+    .ocorrencia-card {
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--cor-borda);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+      border-left: 3px solid transparent;
+    }
+    .ocorrencia-card:hover {
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(255,255,255,0.12);
+    }
+    .ocorrencia-card.nivel-critico { border-left-color: var(--cor-alerta); }
+    .ocorrencia-card.nivel-medio   { border-left-color: var(--cor-atencao); }
+    .ocorrencia-card.nivel-baixo   { border-left-color: var(--cor-normal); }
+
+    .card-topo {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 6px;
+    }
+    .nivel-badge {
+      font-family: 'Space Mono', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      letter-spacing: 0.04em;
+    }
+    .nivel-badge.critico { background: rgba(239,68,68,0.15); color: var(--cor-alerta); border: 1px solid rgba(239,68,68,0.3); }
+    .nivel-badge.medio   { background: rgba(245,158,11,0.15); color: var(--cor-atencao); border: 1px solid rgba(245,158,11,0.3); }
+    .nivel-badge.baixo   { background: rgba(34,197,94,0.12); color: var(--cor-normal); border: 1px solid rgba(34,197,94,0.25); }
+
+    .card-hora {
+      font-size: 11px;
+      color: var(--cor-texto-muted);
+      font-family: 'Space Mono', monospace;
+    }
+    .card-desc {
+      font-size: 13px;
+      color: rgba(230,237,243,0.75);
+      line-height: 1.5;
+    }
+    .card-coords {
+      font-size: 10px;
+      color: var(--cor-texto-muted);
+      font-family: 'Space Mono', monospace;
+      margin-top: 6px;
+    }
+
+    .vazio {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--cor-texto-muted);
+      font-size: 13px;
+    }
+
+    #map-wrapper {
+      flex: 1;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #map-header {
+      position: absolute;
+      top: 16px; left: 16px; right: 16px;
+      z-index: 500;
+      display: flex;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .map-badge {
+      background: rgba(13,17,23,0.85);
+      backdrop-filter: blur(6px);
+      border: 1px solid var(--cor-borda);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 12px;
+      color: var(--cor-texto-muted);
+      pointer-events: all;
+    }
+    .map-badge strong {
+      color: var(--cor-texto);
+      font-family: 'Space Mono', monospace;
+      font-size: 13px;
+    }
+
+    #map { flex: 1; }
+
+    #legenda-mapa {
+      position: absolute;
+      bottom: 28px; right: 16px;
+      z-index: 500;
+      background: rgba(13,17,23,0.88);
+      backdrop-filter: blur(6px);
+      border: 1px solid var(--cor-borda);
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 12px;
+      color: var(--cor-texto-muted);
+    }
+    #legenda-mapa p { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; font-weight: 600; color: var(--cor-texto-muted); }
+    .legenda-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      font-size: 12px;
+      color: var(--cor-texto);
+    }
+    .legenda-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .leaflet-tile { filter: brightness(0.6) saturate(0.5); }
+    .leaflet-container { background: #1a1f2e; }
+    .leaflet-popup-content-wrapper {
+      background: var(--cor-painel);
+      color: var(--cor-texto);
+      border: 1px solid var(--cor-borda);
+      border-radius: 10px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    }
+    .leaflet-popup-tip { background: var(--cor-painel); }
+    .leaflet-popup-content { font-family: 'DM Sans', sans-serif; font-size: 13px; line-height: 1.6; }
+
+    .loading-state {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--cor-texto-muted);
+      font-size: 12px;
+      padding: 20px 0;
+    }
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.1);
+      border-top-color: var(--cor-info);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
 </head>
 <body>
 
-    <div id="sidebar">
-        <h3>Monitoramento Anhaia Mello</h3>
-        <div id="badge-nivel" class="badge-nivel" style="background-color: #10b981;">STATUS NORMAL</div>
-        
-        <h3>Relatos da Comunidade</h3>
-        <div id="lista-ocorrencias">Carregando dados...</div>
+  <div id="alerta-critico">⚠ NÍVEL CRÍTICO DETECTADO — RISCO DE ALAGAMENTO NA ÁREA</div>
+
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <div class="logo-linha">
+        <div class="logo-icone">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-9v6h4l-5 7z"/>
+          </svg>
+        </div>
+        <h1>Anhaia Mello</h1>
+      </div>
+      <p>Sistema de monitoramento de alagamentos</p>
+
+      <div id="status-badge">
+        <div class="status-dot" id="status-dot"></div>
+        <span id="status-texto">Carregando...</span>
+        <span id="ultimo-update"></span>
+      </div>
     </div>
-    
+
+    <div id="stats-grid">
+      <div class="stat-card">
+        <div class="stat-num" id="stat-total" style="color:var(--cor-texto)">—</div>
+        <div class="stat-label">Relatos</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num vermelho" id="stat-critico">—</div>
+        <div class="stat-label">Críticos</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num amarelo" id="stat-medio">—</div>
+        <div class="stat-label">Atenção</div>
+      </div>
+    </div>
+
+    <div id="filtros">
+      <button class="btn-filtro ativo" data-filtro="todos" onclick="aplicarFiltro('todos', this)">Todos</button>
+      <button class="btn-filtro critico" data-filtro="critico" onclick="aplicarFiltro('critico', this)">Crítico</button>
+      <button class="btn-filtro medio" data-filtro="medio" onclick="aplicarFiltro('medio', this)">Atenção</button>
+      <button class="btn-filtro baixo" data-filtro="baixo" onclick="aplicarFiltro('baixo', this)">Baixo</button>
+    </div>
+
+    <div id="lista-scroll">
+      <div id="lista-titulo">Ocorrências validadas</div>
+      <div id="lista-ocorrencias">
+        <div class="loading-state"><div class="spinner"></div> Buscando dados...</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="map-wrapper">
+    <div id="map-header">
+      <div class="map-badge">
+        <strong>Córrego Anhaia Mello</strong> &nbsp;·&nbsp; São Paulo, SP
+      </div>
+      <div class="map-badge" id="badge-pontos">— pontos ativos</div>
+    </div>
+
     <div id="map"></div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-        const map = L.map('map').setView([-23.5822, -46.5844], 14);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-        const markersLayer = L.layerGroup().addTo(map);
+    <div id="legenda-mapa">
+      <p>Nível de risco</p>
+      <div class="legenda-item"><div class="legenda-dot" style="background:#ef4444"></div>Crítico</div>
+      <div class="legenda-item"><div class="legenda-dot" style="background:#f59e0b"></div>Atenção</div>
+      <div class="legenda-item"><div class="legenda-dot" style="background:#22c55e"></div>Baixo</div>
+    </div>
+  </div>
 
-        function calcularTempo(dataISO) {
-            if (!dataISO) return "Data não informada";
-            const diff = Math.floor((new Date() - new Date(dataISO)) / 60000);
-            if (diff < 1) return "Agora mesmo";
-            if (diff < 60) return `Há ${diff} min`;
-            return `Há ${Math.floor(diff / 60)}h`;
-        }
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map', { zoomControl: false }).setView([-23.5822, -46.5844], 14);
+    L.control.zoom({ position: 'bottomleft' }).addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+    const camadaMarcadores = L.layerGroup().addTo(map);
 
-        async function carregarDados() {
-            try {
-                const res = await fetch('/ocorrencias/validadas');
-                const pontos = await res.json();
-                
-                const lista = document.getElementById('lista-ocorrencias');
-                lista.innerHTML = '';
-                markersLayer.clearLayers();
+    let todosPontos = [];
+    let filtroAtivo = 'todos';
 
-                // Ordena: mais novos primeiro
-                pontos.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    function classificarNivel(nivel) {
+      if (!nivel && nivel !== 0) return 'baixo';
+      const n = parseFloat(nivel);
+      if (n >= 3) return 'critico';
+      if (n >= 1.5) return 'medio';
+      return 'baixo';
+    }
 
-                pontos.forEach(p => {
-                    // Adiciona marcador no mapa
-                    L.marker([p.latitude, p.longitude]).addTo(markersLayer).bindPopup(p.descricao);
-                    
-                    // Adiciona card na lista
-                    const card = document.createElement('div');
-                    card.className = 'card';
-                    card.innerHTML = `
-                        <strong>Nível ${p.nivel_agua}</strong>
-                        <div style="font-size: 12px; color: #64748b;">${calcularTempo(p.created_at)}</div>
-                        <p style="margin: 5px 0 0 0; font-size: 14px;">${p.descricao}</p>
-                    `;
-                    lista.appendChild(card);
-                });
-            } catch (e) {
-                console.error("Erro ao carregar:", e);
-            }
-        }
+    function corNivel(nivel) {
+      if (nivel === 'critico') return '#ef4444';
+      if (nivel === 'medio')   return '#f59e0b';
+      return '#22c55e';
+    }
 
-        carregarDados();
-        setInterval(carregarDados, 10000);
-    </script>
+    function labelNivel(nivel) {
+      if (nivel === 'critico') return 'CRÍTICO';
+      if (nivel === 'medio')   return 'ATENÇÃO';
+      return 'BAIXO';
+    }
+
+    function criarIcone(nivel) {
+      const cor = corNivel(nivel);
+      const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+          <path d="M14 0C6.27 0 0 6.27 0 14c0 9 14 22 14 22s14-13 14-22C28 6.27 21.73 0 14 0z" fill="${cor}" opacity="0.9"/>
+          <circle cx="14" cy="14" r="6" fill="white" opacity="0.9"/>
+        </svg>`;
+      return L.divIcon({
+        className: '',
+        html: svg,
+        iconSize: [28, 36],
+        iconAnchor: [14, 36],
+        popupAnchor: [0, -36]
+      });
+    }
+
+    function formatarData(iso) {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function tempoRelativo(iso) {
+      if (!iso) return '';
+      const diff = Date.now() - new Date(iso).getTime();
+      const min = Math.floor(diff / 60000);
+      if (min < 1)  return 'agora';
+      if (min < 60) return `${min}min atrás`;
+      const h = Math.floor(min / 60);
+      if (h < 24)   return `${h}h atrás`;
+      return `${Math.floor(h/24)}d atrás`;
+    }
+
+    function renderizarLista(pontos) {
+      const lista = document.getElementById('lista-ocorrencias');
+      lista.innerHTML = '';
+      camadaMarcadores.clearLayers();
+
+      if (!pontos || pontos.length === 0) {
+        lista.innerHTML = '<div class="vazio">Nenhuma ocorrência encontrada.</div>';
+        document.getElementById('badge-pontos').innerHTML = '0 pontos ativos';
+        return;
+      }
+
+      pontos.forEach(p => {
+        const nivel = classificarNivel(p.nivel_agua);
+        const cor   = corNivel(nivel);
+
+        const marcador = L.marker([p.latitude, p.longitude], { icon: criarIcone(nivel) });
+        marcador.bindPopup(`
+          <div style="font-family:'DM Sans',sans-serif;min-width:200px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:${cor};margin-bottom:6px">${labelNivel(nivel)}</div>
+            <div style="font-size:13px;line-height:1.5;margin-bottom:8px">${p.descricao || 'Sem descrição'}</div>
+            <div style="font-size:11px;color:#8b949e;font-family:'Space Mono',monospace">${formatarData(p.created_at)}</div>
+          </div>
+        `);
+        marcador.addTo(camadaMarcadores);
+
+        const card = document.createElement('div');
+        card.className = `ocorrencia-card nivel-${nivel}`;
+        card.innerHTML = `
+          <div class="card-topo">
+            <span class="nivel-badge ${nivel}">${labelNivel(nivel)}</span>
+            <span class="card-hora">${tempoRelativo(p.created_at)}</span>
+          </div>
+          <div class="card-desc">${p.descricao || 'Relato sem descrição detalhada.'}</div>
+          <div class="card-coords">${formatarData(p.created_at)} · ${p.latitude?.toFixed(4)}, ${p.longitude?.toFixed(4)}</div>
+        `;
+        card.addEventListener('click', () => {
+          map.setView([p.latitude, p.longitude], 16, { animate: true });
+          marcador.openPopup();
+        });
+        lista.appendChild(card);
+      });
+
+      document.getElementById('badge-pontos').innerHTML = `<strong>${pontos.length}</strong> pontos ativos`;
+    }
+
+    function atualizarStats(pontos) {
+      const total   = pontos.length;
+      const critico = pontos.filter(p => classificarNivel(p.nivel_agua) === 'critico').length;
+      const medio   = pontos.filter(p => classificarNivel(p.nivel_agua) === 'medio').length;
+
+      document.getElementById('stat-total').textContent   = total;
+      document.getElementById('stat-critico').textContent = critico;
+      document.getElementById('stat-medio').textContent   = medio;
+
+      const badge  = document.getElementById('status-badge');
+      const dot    = document.getElementById('status-dot');
+      const texto  = document.getElementById('status-texto');
+      const alerta = document.getElementById('alerta-critico');
+
+      if (critico > 0) {
+        badge.className = 'alerta';
+        dot.className   = 'status-dot pulsando';
+        texto.textContent = `ALERTA CRÍTICO — ${critico} ocorrência${critico > 1 ? 's' : ''}`;
+        alerta.style.display = 'block';
+      } else if (medio > 0) {
+        badge.className = 'atencao';
+        dot.className   = 'status-dot pulsando';
+        texto.textContent = `ATENÇÃO — ${medio} ponto${medio > 1 ? 's' : ''} em observação`;
+        alerta.style.display = 'none';
+      } else {
+        badge.className = '';
+        dot.className   = 'status-dot';
+        texto.textContent = 'SITUAÇÃO NORMAL';
+        alerta.style.display = 'none';
+      }
+
+      const agora = new Date();
+      document.getElementById('ultimo-update').textContent =
+        `Atualizado ${agora.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}`;
+    }
+
+    function aplicarFiltro(filtro, btn) {
+      filtroAtivo = filtro;
+      document.querySelectorAll('.btn-filtro').forEach(b => b.classList.remove('ativo'));
+      btn.classList.add('ativo');
+
+      const filtrados = filtro === 'todos'
+        ? todosPontos
+        : todosPontos.filter(p => classificarNivel(p.nivel_agua) === filtro);
+      renderizarLista(filtrados);
+    }
+
+    async function carregarDados() {
+      try {
+        const res = await fetch('/ocorrencias/validadas');
+        if (!res.ok) throw new Error('Erro na resposta');
+        todosPontos = await res.json();
+      } catch (e) {
+        console.warn('API indisponível, usando dados de exemplo.');
+        todosPontos = [];
+      }
+
+      atualizarStats(todosPontos);
+      const filtrados = filtroAtivo === 'todos'
+        ? todosPontos
+        : todosPontos.filter(p => classificarNivel(p.nivel_agua) === filtroAtivo);
+      renderizarLista(filtrados);
+    }
+
+    carregarDados();
+    setInterval(carregarDados, 15000);
+  </script>
 </body>
 </html>
