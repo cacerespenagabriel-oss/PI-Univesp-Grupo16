@@ -22,6 +22,7 @@ def listar_ocorrencias_validadas():
                 "longitude": o.longitude,
                 # Forçamos a data aqui. Se 'o.data_criacao' for None, 
                 # vamos usar o tempo atual como plano B para não quebrar o front
+                #
                 "created_at": o.data_criacao.isoformat() if o.data_criacao else datetime.utcnow().isoformat()
             })
         return resultado
